@@ -211,12 +211,10 @@ public class GuiaService {
                 .orElseThrow(() ->
                         new ResourceNotFoundException("Guía no encontrada"));
 
-        if(guia.getRutaEfs() == null){
+        generarArchivo(id);
 
-            generarArchivo(id);
+        guia = guiaRepository.findById(id).get();
 
-            guia = guiaRepository.findById(id).get();
-        }
 
         File archivo = new File(
                 guia.getRutaEfs()
