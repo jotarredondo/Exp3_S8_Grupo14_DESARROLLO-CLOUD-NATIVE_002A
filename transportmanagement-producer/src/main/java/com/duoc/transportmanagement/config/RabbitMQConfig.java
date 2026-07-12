@@ -1,12 +1,13 @@
 package com.duoc.transportmanagement.config;
 
 import com.duoc.transportmanagement.util.RabbitConstants;
-import org.springframework.amqp.core.Queue;
+import org.springframework.amqp.core.*;
 import org.springframework.amqp.rabbit.connection.ConnectionFactory;
+import org.springframework.amqp.rabbit.core.RabbitAdmin;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.amqp.support.converter.DefaultJackson2JavaTypeMapper;
-import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter;
 import org.springframework.amqp.support.converter.Jackson2JavaTypeMapper;
+import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter;
 import org.springframework.amqp.support.converter.MessageConverter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -14,7 +15,14 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 public class RabbitMQConfig {
 
+    // =====================================================
     // GUIAS
+    // =====================================================
+
+    @Bean
+    public DirectExchange guiaExchange() {
+        return new DirectExchange(RabbitConstants.GUIA_EXCHANGE);
+    }
 
     @Bean
     public Queue guiaQueue() {
@@ -22,11 +30,22 @@ public class RabbitMQConfig {
     }
 
     @Bean
-    public Queue guiaDlq() {
-        return new Queue(RabbitConstants.GUIA_DLQ, true);
+    public Binding guiaBinding() {
+
+        return BindingBuilder
+                .bind(guiaQueue())
+                .to(guiaExchange())
+                .with(RabbitConstants.GUIA_QUEUE);
     }
 
+    // =====================================================
     // TRANSPORTISTAS
+    // =====================================================
+
+    @Bean
+    public DirectExchange transportistaExchange() {
+        return new DirectExchange(RabbitConstants.TRANSPORTISTA_EXCHANGE);
+    }
 
     @Bean
     public Queue transportistaQueue() {
@@ -34,11 +53,59 @@ public class RabbitMQConfig {
     }
 
     @Bean
+    public Binding transportistaBinding() {
+
+        return BindingBuilder
+                .bind(transportistaQueue())
+                .to(transportistaExchange())
+                .with(RabbitConstants.TRANSPORTISTA_QUEUE);
+    }
+
+    // =====================================================
+    // DEAD LETTER (solo declaración)
+    // =====================================================
+
+    @Bean
+    public DirectExchange guiaDlxExchange() {
+        return new DirectExchange(RabbitConstants.GUIA_DLX_EXCHANGE);
+    }
+
+    @Bean
+    public Queue guiaDlq() {
+        return new Queue(RabbitConstants.GUIA_DLQ, true);
+    }
+
+    @Bean
+    public Binding guiaDlqBinding() {
+
+        return BindingBuilder
+                .bind(guiaDlq())
+                .to(guiaDlxExchange())
+                .with(RabbitConstants.GUIA_DLQ);
+    }
+
+    @Bean
+    public DirectExchange transportistaDlxExchange() {
+        return new DirectExchange(RabbitConstants.TRANSPORTISTA_DLX_EXCHANGE);
+    }
+
+    @Bean
     public Queue transportistaDlq() {
         return new Queue(RabbitConstants.TRANSPORTISTA_DLQ, true);
     }
 
+    @Bean
+    public Binding transportistaDlqBinding() {
+
+        return BindingBuilder
+                .bind(transportistaDlq())
+                .to(transportistaDlxExchange())
+                .with(RabbitConstants.TRANSPORTISTA_DLQ);
+    }
+
+    // =====================================================
     // JSON
+    // =====================================================
 
     @Bean
     public MessageConverter jsonMessageConverter() {
@@ -50,13 +117,19 @@ public class RabbitMQConfig {
                 new DefaultJackson2JavaTypeMapper();
 
         typeMapper.setTrustedPackages("*");
+
         typeMapper.setTypePrecedence(
-                Jackson2JavaTypeMapper.TypePrecedence.INFERRED);
+                Jackson2JavaTypeMapper.TypePrecedence.INFERRED
+        );
 
         converter.setJavaTypeMapper(typeMapper);
 
         return converter;
     }
+
+    // =====================================================
+    // TEMPLATE
+    // =====================================================
 
     @Bean
     public RabbitTemplate rabbitTemplate(
@@ -69,6 +142,17 @@ public class RabbitMQConfig {
         template.setMessageConverter(messageConverter);
 
         return template;
+    }
+
+    // =====================================================
+    // ADMIN
+    // =====================================================
+
+    @Bean
+    public AmqpAdmin amqpAdmin(ConnectionFactory connectionFactory) {
+
+        return new RabbitAdmin(connectionFactory);
+
     }
 
 }
