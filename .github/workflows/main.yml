@@ -27,13 +27,17 @@ jobs:
       # Paso 3: Construir la imagen de Docker
       - name: Build Docker Image
         run: |
-          docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/transport-management:latest .
+          docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/transport-management-producer:latest \
+            ./transportmanagement-producer
+          docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/transport-management-consumer:latest \
+            ./transportmanagement-consumer
 
       # Paso 4: Hacer push de la imagen a DockerHub
       - name: Push Docker Image
         run: |
-          docker push ${{ secrets.DOCKERHUB_USERNAME }}/transport-management:latest
-          
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/transport-management-producer:latest
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/transport-management-consumer:latest
+
      # Paso 5: Configurar credenciales de AWS para SSH, incluyendo AWS_SESSION_TOKEN
       - name: Set up AWS credentials
         uses: aws-actions/configure-aws-credentials@v2
@@ -58,14 +62,39 @@ jobs:
             # Autenticar en DockerHub desde EC2
             echo ${{ secrets.DOCKERHUB_TOKEN }} | docker login -u ${{ secrets.DOCKERHUB_USERNAME }} --password-stdin
             # Descargar la última versión de la imagen
-            docker pull ${{ secrets.DOCKERHUB_USERNAME }}/transport-management:latest
+            docker pull ${{ secrets.DOCKERHUB_USERNAME }}/transport-management-producer:latest
+            docker pull ${{ secrets.DOCKERHUB_USERNAME }}/transport-management-consumer:latest
+            # RabbitMQ
+            docker pull rabbitmq:3-management
+            docker network create cloud-network || true
+            docker stop rabbitmq || true
+            docker rm rabbitmq || true
+            
+            docker run -d \
+            --name rabbitmq \
+            --network cloud-network \
+            --restart unless-stopped \
+            -p 5672:5672 \
+            -p 15672:15672 \
+            rabbitmq:3-management
+            
             # Parar y eliminar cualquier contenedor previo
-            docker stop transport-management || true && docker rm transport-management || true
+            docker stop transport-management-producer || true && docker rm transport-management-producer || true
+            docker stop transport-management-consumer || true && docker rm transport-management-consumer || true
             # Iniciar el contenedor
-            docker run -d --name transport-management -v /mnt/efs:/app/efs -p 8080:8080\
+            docker run -d --name transport-management-producer -v /mnt/efs:/app/efs -p 8080:8080\
             -e AWS_ACCESS_KEY_ID="${{ secrets.AWS_ACCESS_KEY_ID}}" \
             -e AWS_SECRET_ACCESS_KEY="${{ secrets.AWS_SECRET_ACCESS_KEY}}" \
             -e AWS_SESSION_TOKEN="${{ secrets.AWS_SESSION_TOKEN}}" \
             -e AWS_S3_BUCKET="${{ secrets.AWS_S3_BUCKET}}" \
-            ${{ secrets.DOCKERHUB_USERNAME }}/transport-management:latest
+            -e AWS_EC2_URL_CONSUMER="${{ secrets.AWS_EC2_URL_CONSUMER }}" \
+            ${{ secrets.DOCKERHUB_USERNAME }}/transport-management-producer:latest
+          
+            docker run -d --name transport-management-consumer -v /mnt/efs:/app/efs -p 8081:8081\
+            -e AWS_ACCESS_KEY_ID="${{ secrets.AWS_ACCESS_KEY_ID}}" \
+            -e AWS_SECRET_ACCESS_KEY="${{ secrets.AWS_SECRET_ACCESS_KEY}}" \
+            -e AWS_SESSION_TOKEN="${{ secrets.AWS_SESSION_TOKEN}}" \
+            -e AWS_S3_BUCKET="${{ secrets.AWS_S3_BUCKET}}" \
+            -e AWS_EC2_URL_PRODUCER="${{ secrets.AWS_EC2_URL_PRODUCER }}" \
+            ${{ secrets.DOCKERHUB_USERNAME }}/transport-management-consumer:latest
           EOF
