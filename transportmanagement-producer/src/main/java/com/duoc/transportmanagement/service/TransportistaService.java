@@ -1,10 +1,8 @@
 package com.duoc.transportmanagement.service;
 
 import com.duoc.transportmanagement.dto.TransportistaDTO;
+import com.duoc.transportmanagement.dto.TransportistaMessageDTO;
 import com.duoc.transportmanagement.dto.TransportistaResumenDTO;
-import com.duoc.transportmanagement.exception.ResourceNotFoundException;
-import com.duoc.transportmanagement.model.Transportista;
-import com.duoc.transportmanagement.repository.TransportistaRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -14,73 +12,60 @@ import java.util.List;
 public class TransportistaService {
 
     @Autowired
-    private TransportistaRepository transportistaRepository;
+    private ConsumerClient consumerClient;
+
+    private final RabbitMQTransportistaProducer producer;
+
+    public TransportistaService(RabbitMQTransportistaProducer producer) {
+        this.producer = producer;
+    }
 
     public List<TransportistaResumenDTO> findAll() {
-
-        return transportistaRepository.findAll()
-                .stream()
-                .map(this::toResumenDTO)
-                .toList();
+        return consumerClient.findAllTransportistas();
     }
 
     public TransportistaResumenDTO findById(Long id) {
 
-        Transportista transportista = transportistaRepository.findById(id)
-                .orElseThrow(() ->
-                        new ResourceNotFoundException("Transportista no encontrado"));
-
-        return toResumenDTO(transportista);
+        return consumerClient.findTransportista(id);
     }
 
-    public TransportistaResumenDTO saveTransportista(TransportistaDTO dto) {
+    public String saveTransportista(TransportistaDTO dto) {
 
-        Transportista transportista = new Transportista();
+        TransportistaMessageDTO mensaje = new TransportistaMessageDTO();
+        mensaje.setOperacion("CREATE");
+        mensaje.setTransportista(dto);
 
-        transportista.setNombre(dto.getNombre());
-        transportista.setRut(dto.getRut());
-        transportista.setTelefono(dto.getTelefono());
-        transportista.setCorreo(dto.getCorreo());
+        producer.sendMessage(mensaje);
 
-        transportistaRepository.save(transportista);
-
-        return toResumenDTO(transportista);
+        return "Solicitud enviada a RabbitMQ";
     }
 
-    public TransportistaResumenDTO updateTransportista(Long id,
+    public String updateTransportista(Long id,
                                                        TransportistaDTO dto) {
 
-        Transportista transportista = transportistaRepository.findById(id)
-                .orElseThrow(() ->
-                        new ResourceNotFoundException("Transportista no encontrado"));
+        TransportistaMessageDTO mensaje =
+                new TransportistaMessageDTO();
 
-        transportista.setNombre(dto.getNombre());
-        transportista.setRut(dto.getRut());
-        transportista.setTelefono(dto.getTelefono());
-        transportista.setCorreo(dto.getCorreo());
+        mensaje.setOperacion("UPDATE");
+        mensaje.setId(id);
+        mensaje.setTransportista(dto);
 
-        transportistaRepository.save(transportista);
+        producer.sendMessage(mensaje);
 
-        return toResumenDTO(transportista);
+        return "Solicitud enviada a RabbitMQ";
     }
 
-    public void deleteTransportista(Long id) {
+    public String deleteTransportista(Long id) {
 
-        Transportista transportista = transportistaRepository.findById(id)
-                .orElseThrow(() ->
-                        new ResourceNotFoundException("Transportista no encontrado"));
+        TransportistaMessageDTO mensaje =
+                new TransportistaMessageDTO();
 
-        transportistaRepository.delete(transportista);
+        mensaje.setOperacion("DELETE");
+        mensaje.setId(id);
+
+        producer.sendMessage(mensaje);
+
+        return "Solicitud enviada a RabbitMQ";
     }
 
-    private TransportistaResumenDTO toResumenDTO(Transportista transportista) {
-
-        TransportistaResumenDTO dto =
-                new TransportistaResumenDTO();
-
-        dto.setId(transportista.getId());
-        dto.setNombre(transportista.getNombre());
-
-        return dto;
-    }
 }

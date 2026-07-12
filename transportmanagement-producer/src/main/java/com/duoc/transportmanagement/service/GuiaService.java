@@ -1,19 +1,9 @@
 package com.duoc.transportmanagement.service;
 
 import com.duoc.transportmanagement.dto.*;
-import com.duoc.transportmanagement.exception.ResourceNotFoundException;
-import com.duoc.transportmanagement.model.GuiaDespacho;
-import com.duoc.transportmanagement.model.Transportista;
-import com.duoc.transportmanagement.repository.GuiaRepository;
-import com.duoc.transportmanagement.repository.S3Repository;
-import com.duoc.transportmanagement.repository.TransportistaRepository;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
-import java.io.File;
-import java.io.FileWriter;
-import java.io.IOException;
 import java.time.LocalDate;
 import java.util.List;
 
@@ -21,386 +11,132 @@ import java.util.List;
 public class GuiaService {
 
     @Autowired
-    private GuiaRepository guiaRepository;
+    private ConsumerClient consumerClient;
 
-    @Autowired
-    private TransportistaRepository transportistaRepository;
+    private final RabbitMQGuiaProducer producer;
 
-    @Autowired
-    private S3Repository s3Repository;
-
-    @Value("${aws.bucket.name}")
-    private String bucketName;
-
-    @Value("${efs.path:/app/efs}")
-    private String efsPath;
+    public GuiaService(RabbitMQGuiaProducer producer) {
+        this.producer = producer;
+    }
 
     public List<GuiaResumenDTO> findAll() {
-
-        return guiaRepository.findAll()
-                .stream()
-                .map(this::toResumenDTO)
-                .toList();
+        return consumerClient.findAllGuias();
     }
 
     public GuiaDTO findById(Long id) {
-
-        GuiaDespacho guia = guiaRepository.findById(id)
-                .orElseThrow(() ->
-                        new ResourceNotFoundException("Guía no encontrada"));
-
-        return toDTO(guia);
+        return consumerClient.findGuiaById(id);
     }
 
     public List<GuiaResumenDTO> findByFecha(LocalDate fecha) {
-
-        return guiaRepository.findByFechaGeneracion(fecha)
-                .stream()
-                .map(this::toResumenDTO)
-                .toList();
+        return consumerClient.findByFecha(fecha);
     }
 
-    public GuiaDTO createGuia(GuiaCreateDTO dto) {
+    public String createGuia(GuiaCreateDTO dto) {
 
-        Transportista transportista =
-                transportistaRepository.findById(dto.getTransportistaId())
-                        .orElseThrow(() ->
-                                new ResourceNotFoundException("Transportista no encontrado"));
+        GuiaMessageDTO mensaje = new GuiaMessageDTO();
+        mensaje.setOperacion("CREATE");
+        mensaje.setGuiaCreate(dto);
 
-        GuiaDespacho guia = new GuiaDespacho();
+        producer.sendMessage(mensaje);
 
-        guia.setNumeroGuia(dto.getNumeroGuia());
-        guia.setCliente(dto.getCliente());
-        guia.setDireccionEntrega(dto.getDireccionEntrega());
-        guia.setDescripcionCarga(dto.getDescripcionCarga());
-        guia.setFechaGeneracion(LocalDate.now());
-        guia.setEstado("GENERADA");
-        guia.setTransportista(transportista);
-
-        String nombreTransportista = transportista.getNombre()
-                .toLowerCase()
-                .replace(" ", "-");
-
-        String rutaEfs =
-                "/app/efs/guias/guia_" +
-                        dto.getNumeroGuia() +
-                        ".txt";
-
-        String rutaS3 =
-                "guias/" +
-                        LocalDate.now().getYear() + "/" +
-                        String.format("%02d", LocalDate.now().getMonthValue()) + "/" +
-                        String.format("%02d", LocalDate.now().getDayOfMonth()) + "/" +
-                        nombreTransportista +
-                        "/guia_" +
-                        dto.getNumeroGuia() +
-                        ".txt";
-
-        guia.setRutaEfs(rutaEfs);
-        guia.setRutaS3(rutaS3);
-
-        guiaRepository.save(guia);
-
-        return toDTO(guia);
+        return "Solicitud enviada a RabbitMQ";
     }
 
-    public GuiaDTO updateGuia(Long id, GuiaUpdateDTO dto) {
+    public String updateGuia(Long id, GuiaUpdateDTO dto) {
 
-        GuiaDespacho guia = guiaRepository.findById(id)
-                .orElseThrow(() ->
-                        new ResourceNotFoundException("Guía no encontrada"));
+        GuiaMessageDTO mensaje =
+                new GuiaMessageDTO();
 
-        guia.setCliente(dto.getCliente());
-        guia.setDireccionEntrega(dto.getDireccionEntrega());
-        guia.setDescripcionCarga(dto.getDescripcionCarga());
+        mensaje.setOperacion("UPDATE");
+        mensaje.setId(id);
+        mensaje.setGuiaUpdate(dto);
 
-        if(dto.getEstado() != null){
-            guia.setEstado(dto.getEstado() ? "ACTIVA" : "INACTIVA");
-        }
+        producer.sendMessage(mensaje);
 
-        guiaRepository.save(guia);
-
-        return toDTO(guia);
+        return "Solicitud enviada a RabbitMQ";
     }
 
-    public void deleteGuia(Long id) {
+    public String deleteGuia(Long id) {
 
-        GuiaDespacho guia = guiaRepository.findById(id)
-                .orElseThrow(() ->
-                        new ResourceNotFoundException("Guía no encontrada"));
+        GuiaMessageDTO mensaje =
+                new GuiaMessageDTO();
 
-        if(guia.getRutaS3() != null){
+        mensaje.setOperacion("DELETE");
+        mensaje.setId(id);
 
-            s3Repository.deleteObject(
-                    bucketName,
-                    guia.getRutaS3()
-            );
-        }
+        producer.sendMessage(mensaje);
 
-        guiaRepository.delete(guia);
+        return "Solicitud enviada a RabbitMQ";
     }
 
     public List<GuiaResumenDTO> findByTransportista(Long transportistaId){
 
-        return guiaRepository.findByTransportistaId(transportistaId)
-                .stream()
-                .map(this::toResumenDTO)
-                .toList();
+        return consumerClient.findByTransportista(transportistaId);
     }
 
-    public ArchivoDTO generarArchivo(Long id){
+    public String generarArchivo(Long id){
 
-        GuiaDespacho guia = guiaRepository.findById(id)
-                .orElseThrow(() ->
-                        new ResourceNotFoundException("Guía no encontrada"));
+        GuiaMessageDTO mensaje =
+                new GuiaMessageDTO();
 
-        try {
+        mensaje.setOperacion("GENERAR_ARCHIVO");
+        mensaje.setId(id);
 
-            String carpeta =
-                    efsPath +
-                            "/" +
-                            LocalDate.now().getYear();
+        producer.sendMessage(mensaje);
 
-            File directorio = new File(carpeta);
-
-            if(!directorio.exists()){
-                directorio.mkdirs();
-            }
-
-            String nombreArchivo =
-                    "guia_" +
-                            guia.getNumeroGuia() +
-                            ".txt";
-
-            File archivo = new File(
-                    carpeta + "/" + nombreArchivo
-            );
-
-            try(FileWriter writer = new FileWriter(archivo)){
-
-                writer.write(
-                        generarContenidoGuia(id)
-                );
-            }
-
-            guia.setRutaEfs(
-                    archivo.getAbsolutePath()
-            );
-
-            guiaRepository.save(guia);
-
-            ArchivoDTO dto = new ArchivoDTO();
-
-            dto.setNombreArchivo(nombreArchivo);
-            dto.setRutaEfs(archivo.getAbsolutePath());
-
-            return dto;
-
-        } catch (IOException e){
-
-            throw new RuntimeException(
-                    "Error al generar archivo",
-                    e
-            );
-        }
+        return "Solicitud enviada a RabbitMQ";
     }
 
     public String subirArchivoS3(Long id){
 
-        GuiaDespacho guia = guiaRepository.findById(id)
-                .orElseThrow(() ->
-                        new ResourceNotFoundException("Guía no encontrada"));
+        GuiaMessageDTO mensaje =
+                new GuiaMessageDTO();
 
-        generarArchivo(id);
+        mensaje.setOperacion("SUBIR_S3");
+        mensaje.setId(id);
 
-        guia = guiaRepository.findById(id).get();
+        producer.sendMessage(mensaje);
 
-
-        File archivo = new File(
-                guia.getRutaEfs()
-        );
-
-        LocalDate fecha = guia.getFechaGeneracion();
-
-        String key =
-                fecha.getYear()
-                        + "/"
-                        + String.format("%02d", fecha.getMonthValue())
-                        + "/"
-                        + String.format("%02d", LocalDate.now().getDayOfMonth())
-                        + "/"
-                        + guia.getTransportista().getNombre()
-                        + "/"
-                        + archivo.getName();
-
-        String resultado =
-                s3Repository.uploadFile(
-                        bucketName,
-                        key,
-                        archivo
-                );
-
-        guia.setRutaS3(key);
-
-        guiaRepository.save(guia);
-
-        return resultado;
+        return "Solicitud enviada a RabbitMQ";
     }
 
     public String actualizarArchivoS3(Long id, GuiaUpdateDTO dto){
 
 
-        GuiaDespacho guia = guiaRepository.findById(id)
-                .orElseThrow(() ->
-                        new ResourceNotFoundException("Guía no encontrada"));
+        GuiaMessageDTO mensaje =
+                new GuiaMessageDTO();
 
-        if(guia.getRutaS3() != null){
+        mensaje.setOperacion("ACTUALIZAR_S3");
+        mensaje.setId(id);
+        mensaje.setGuiaUpdate(dto);
 
-            s3Repository.deleteObject(
-                    bucketName,
-                    guia.getRutaS3()
-            );
-        }
+        producer.sendMessage(mensaje);
 
-        updateGuia(id, dto);
-
-        generarArchivo(id);
-
-        return subirArchivoS3(id);
+        return "Solicitud enviada a RabbitMQ";
     }
 
-    public byte[] descargarArchivo(Long id){
+    public String descargarArchivo(Long id){
+        GuiaMessageDTO mensaje =
+                new GuiaMessageDTO();
 
-        try {
+        mensaje.setOperacion("DESCARGAR");
+        mensaje.setId(id);
 
-            GuiaDespacho guia = guiaRepository.findById(id)
-                    .orElseThrow(() ->
-                            new ResourceNotFoundException("Guía no encontrada"));
+        producer.sendMessage(mensaje);
 
-            return s3Repository.downloadFile(
-                    bucketName,
-                    guia.getRutaS3()
-            );
-
-        } catch (IOException e){
-
-            throw new RuntimeException(
-                    "Error al descargar archivo",
-                    e
-            );
-        }
+        return "Solicitud enviada a RabbitMQ";
     }
 
-    public void eliminarArchivoS3(Long id){
+    public String eliminarArchivoS3(Long id){
 
-        GuiaDespacho guia = guiaRepository.findById(id)
-                .orElseThrow(() ->
-                        new ResourceNotFoundException("Guía no encontrada"));
+        GuiaMessageDTO mensaje =
+                new GuiaMessageDTO();
 
-        if(guia.getRutaS3() != null){
+        mensaje.setOperacion("ELIMINAR_S3");
+        mensaje.setId(id);
 
-            s3Repository.deleteObject(
-                    bucketName,
-                    guia.getRutaS3()
-            );
+        producer.sendMessage(mensaje);
 
-            guia.setRutaS3(null);
-
-            guiaRepository.save(guia);
-        }
-    }
-
-    private String generarContenidoGuia(Long id){
-
-        GuiaDespacho guia = guiaRepository.findById(id)
-                .orElseThrow(() ->
-                        new ResourceNotFoundException("Guía no encontrada"));
-
-        StringBuilder contenido = new StringBuilder();
-
-        contenido.append("GUIA DE DESPACHO\n\n");
-        contenido.append("Numero Guia: ")
-                .append(guia.getNumeroGuia())
-                .append("\n");
-
-        contenido.append("Fecha: ")
-                .append(guia.getFechaGeneracion())
-                .append("\n");
-
-        contenido.append("Cliente: ")
-                .append(guia.getCliente())
-                .append("\n");
-
-        contenido.append("Direccion: ")
-                .append(guia.getDireccionEntrega())
-                .append("\n");
-
-        contenido.append("Carga: ")
-                .append(guia.getDescripcionCarga())
-                .append("\n");
-
-        contenido.append("Transportista: ")
-                .append(guia.getTransportista().getNombre())
-                .append("\n");
-
-        contenido.append("Estado: ")
-                .append(guia.getEstado());
-
-        return contenido.toString();
-    }
-
-    private GuiaDTO toDTO(GuiaDespacho guia){
-
-        GuiaDTO dto = new GuiaDTO();
-
-        dto.setId(guia.getId());
-        dto.setNumeroGuia(guia.getNumeroGuia());
-        dto.setFechaGeneracion(guia.getFechaGeneracion());
-        dto.setEstado(guia.getEstado());
-
-        dto.setCliente(guia.getCliente());
-        dto.setDireccionEntrega(guia.getDireccionEntrega());
-        dto.setDescripcionCarga(guia.getDescripcionCarga());
-
-        dto.setRutaEfs(guia.getRutaEfs());
-        dto.setRutaS3(guia.getRutaS3());
-
-        dto.setTransportistaId(
-                guia.getTransportista().getId()
-        );
-
-        dto.setTransportistaNombre(
-                guia.getTransportista().getNombre()
-        );
-
-        return dto;
-    }
-
-    private GuiaResumenDTO toResumenDTO(
-            GuiaDespacho guia){
-
-        GuiaResumenDTO dto =
-                new GuiaResumenDTO();
-
-        dto.setId(guia.getId());
-
-        dto.setNumeroGuia(
-                guia.getNumeroGuia()
-        );
-
-        dto.setCliente(
-                guia.getCliente()
-        );
-
-        dto.setTransportista(
-                guia.getTransportista()
-                        .getNombre()
-        );
-
-        dto.setEstado(guia.getEstado());
-
-        dto.setFechaGeneracion(guia.getFechaGeneracion());
-
-        return dto;
+        return "Solicitud enviada a RabbitMQ";
     }
 }
