@@ -16,6 +16,8 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.retry.interceptor.RetryOperationsInterceptor;
 
+import java.util.Map;
+
 @Configuration
 public class RabbitMQConfig {
 
@@ -36,11 +38,16 @@ public class RabbitMQConfig {
     @Bean
     public Queue guiaQueue() {
 
-        return QueueBuilder
-                .durable(RabbitConstants.GUIA_QUEUE)
-                .deadLetterExchange(RabbitConstants.GUIA_DLX_EXCHANGE)
-                .deadLetterRoutingKey(RabbitConstants.GUIA_DLQ)
-                .build();
+        return new Queue(
+                RabbitConstants.GUIA_QUEUE,
+                true,
+                false,
+                false,
+                Map.of(
+                        "x-dead-letter-exchange", RabbitConstants.GUIA_DLX_EXCHANGE,
+                        "x-dead-letter-routing-key", RabbitConstants.GUIA_DLQ
+                )
+        );
     }
 
     @Bean
@@ -83,11 +90,16 @@ public class RabbitMQConfig {
     @Bean
     public Queue transportistaQueue() {
 
-        return QueueBuilder
-                .durable(RabbitConstants.TRANSPORTISTA_QUEUE)
-                .deadLetterExchange(RabbitConstants.TRANSPORTISTA_DLX_EXCHANGE)
-                .deadLetterRoutingKey(RabbitConstants.TRANSPORTISTA_DLQ)
-                .build();
+        return new Queue(
+                RabbitConstants.TRANSPORTISTA_QUEUE,
+                true,
+                false,
+                false,
+                Map.of(
+                        "x-dead-letter-exchange", RabbitConstants.TRANSPORTISTA_DLX_EXCHANGE,
+                        "x-dead-letter-routing-key", RabbitConstants.TRANSPORTISTA_DLQ
+                )
+        );
     }
 
     @Bean
