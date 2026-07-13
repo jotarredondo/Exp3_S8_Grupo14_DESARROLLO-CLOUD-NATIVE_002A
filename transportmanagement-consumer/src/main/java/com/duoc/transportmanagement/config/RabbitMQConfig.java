@@ -1,20 +1,20 @@
 package com.duoc.transportmanagement.config;
 
 import com.duoc.transportmanagement.util.RabbitConstants;
-import org.springframework.amqp.core.AmqpAdmin;
-import org.springframework.amqp.core.Binding;
-import org.springframework.amqp.core.BindingBuilder;
-import org.springframework.amqp.core.DirectExchange;
-import org.springframework.amqp.core.Queue;
+import org.springframework.amqp.core.*;
+import org.springframework.amqp.rabbit.config.RetryInterceptorBuilder;
+import org.springframework.amqp.rabbit.config.SimpleRabbitListenerContainerFactory;
 import org.springframework.amqp.rabbit.connection.ConnectionFactory;
 import org.springframework.amqp.rabbit.core.RabbitAdmin;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.amqp.rabbit.retry.RejectAndDontRequeueRecoverer;
 import org.springframework.amqp.support.converter.DefaultJackson2JavaTypeMapper;
 import org.springframework.amqp.support.converter.Jackson2JavaTypeMapper;
 import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter;
 import org.springframework.amqp.support.converter.MessageConverter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.retry.interceptor.RetryOperationsInterceptor;
 
 import java.util.Map;
 
@@ -38,18 +38,11 @@ public class RabbitMQConfig {
     @Bean
     public Queue guiaQueue() {
 
-        return new Queue(
-                RabbitConstants.GUIA_QUEUE,
-                true,
-                false,
-                false,
-                Map.of(
-                        "x-dead-letter-exchange",
-                        RabbitConstants.GUIA_DLX_EXCHANGE,
-                        "x-dead-letter-routing-key",
-                        RabbitConstants.GUIA_DLQ
-                )
-        );
+        return QueueBuilder
+                .durable(RabbitConstants.GUIA_QUEUE)
+                .deadLetterExchange(RabbitConstants.GUIA_DLX_EXCHANGE)
+                .deadLetterRoutingKey(RabbitConstants.GUIA_DLQ)
+                .build();
     }
 
     @Bean
@@ -92,18 +85,11 @@ public class RabbitMQConfig {
     @Bean
     public Queue transportistaQueue() {
 
-        return new Queue(
-                RabbitConstants.TRANSPORTISTA_QUEUE,
-                true,
-                false,
-                false,
-                Map.of(
-                        "x-dead-letter-exchange",
-                        RabbitConstants.TRANSPORTISTA_DLX_EXCHANGE,
-                        "x-dead-letter-routing-key",
-                        RabbitConstants.TRANSPORTISTA_DLQ
-                )
-        );
+        return QueueBuilder
+                .durable(RabbitConstants.TRANSPORTISTA_QUEUE)
+                .deadLetterExchange(RabbitConstants.TRANSPORTISTA_DLX_EXCHANGE)
+                .deadLetterRoutingKey(RabbitConstants.TRANSPORTISTA_DLQ)
+                .build();
     }
 
     @Bean
@@ -181,4 +167,33 @@ public class RabbitMQConfig {
 
     }
 
+    @Bean
+    public SimpleRabbitListenerContainerFactory rabbitListenerContainerFactory(
+            ConnectionFactory connectionFactory,
+            MessageConverter messageConverter,
+            RabbitTemplate rabbitTemplate) {
+
+        SimpleRabbitListenerContainerFactory factory =
+                new SimpleRabbitListenerContainerFactory();
+
+        factory.setConnectionFactory(connectionFactory);
+        factory.setMessageConverter(messageConverter);
+
+        // Reintenta una sola vez.
+        // Si sigue fallando, rechaza el mensaje para que RabbitMQ
+        // lo envíe automáticamente a la Dead Letter Queue.
+        factory.setAdviceChain(retryInterceptor(rabbitTemplate));
+
+        return factory;
+    }
+
+    @Bean
+    public RetryOperationsInterceptor retryInterceptor(
+            RabbitTemplate rabbitTemplate) {
+
+        return RetryInterceptorBuilder.stateless()
+                .maxAttempts(1)
+                .recoverer(new RejectAndDontRequeueRecoverer())
+                .build();
+    }
 }

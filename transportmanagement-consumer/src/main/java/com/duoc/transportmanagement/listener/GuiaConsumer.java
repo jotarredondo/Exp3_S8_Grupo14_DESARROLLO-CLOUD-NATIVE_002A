@@ -16,40 +16,44 @@ public class GuiaConsumer {
     @Autowired
     private GuiaService guiaService;
 
-    @RabbitListener(queues = RabbitConstants.GUIA_QUEUE)
+    @RabbitListener(
+            queues = RabbitConstants.GUIA_QUEUE,
+            containerFactory = "rabbitListenerContainerFactory"
+    )
     public void receive(GuiaMessageDTO dto){
+        try {
+            switch (dto.getOperacion()) {
 
-        switch(dto.getOperacion()){
+                case "CREATE":
+                    guiaService.createGuia(dto.getGuiaCreate());
+                    break;
 
-            case "CREATE":
-                guiaService.createGuia(dto.getGuiaCreate());
-                break;
+                case "UPDATE":
+                    guiaService.updateGuia(dto.getId(), dto.getGuiaUpdate());
+                    break;
 
-            case "UPDATE":
-                guiaService.updateGuia(dto.getId(), dto.getGuiaUpdate());
-                break;
+                case "DELETE":
+                    guiaService.deleteGuia(dto.getId());
+                    break;
 
-            case "DELETE":
-                guiaService.deleteGuia(dto.getId());
-                break;
+                case "UPLOAD_S3":
+                    guiaService.subirArchivoS3(dto.getId());
+                    break;
 
-            case "UPLOAD_S3":
-                System.out.println("UPLOAD_S3");
-                System.out.println("ID: " + dto.getId());
-                guiaService.subirArchivoS3(dto.getId());
-                break;
+                case "UPDATE_S3":
+                    guiaService.actualizarArchivoS3(dto.getId(), dto.getGuiaUpdate());
+                    break;
 
-            case "UPDATE_S3":
-                System.out.println("UPDATE_S3");
-                System.out.println("ID: " + dto.getId());
-                guiaService.actualizarArchivoS3(dto.getId(), dto.getGuiaUpdate());
-                break;
-
-            case "DELETE_S3":
-                System.out.println("DELETE_S3");
-                guiaService.eliminarArchivoS3(dto.getId());
-                break;
+                case "DELETE_S3":
+                    guiaService.eliminarArchivoS3(dto.getId());
+                    break;
+                default:
+                    throw new IllegalArgumentException("Operación no válida: " + dto.getOperacion());
+            }
+        } catch (Exception e) {
+            System.err.println("Error procesando mensaje de guía");
+            e.printStackTrace();
+            throw e;
         }
-
     }
 }

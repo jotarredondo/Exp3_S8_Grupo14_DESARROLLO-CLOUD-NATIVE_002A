@@ -13,27 +13,35 @@ public class TransportistaConsumer {
     @Autowired
     private TransportistaService transportistaService;
 
-    @RabbitListener(queues = RabbitConstants.TRANSPORTISTA_QUEUE)
+    @RabbitListener(
+            queues = RabbitConstants.TRANSPORTISTA_QUEUE,
+            containerFactory = "rabbitListenerContainerFactory"
+    )
     public void receive(TransportistaMessageDTO dto){
+        try {
+            switch (dto.getOperacion()) {
 
-        System.out.println("Operacion: " + dto.getOperacion());
-        System.out.println("TransportistaDTO: " + dto.getTransportistaDTO());
+                case "CREATE":
+                    transportistaService.saveTransportista(dto.getTransportistaDTO());
+                    break;
 
-        switch(dto.getOperacion()){
+                case "UPDATE":
+                    transportistaService.updateTransportista(dto.getId(),
+                            dto.getTransportistaDTO());
+                    break;
 
-            case "CREATE":
-                transportistaService.saveTransportista(dto.getTransportistaDTO());
-                break;
+                case "DELETE":
+                    transportistaService.deleteTransportista(dto.getId());
+                    break;
+                default:
+                    throw new IllegalArgumentException(
+                            "Operación no soportada: " + dto.getOperacion());
+            }
+        }catch (Exception e){
+            System.err.println("Error procesando mensaje de transportista");
+            e.printStackTrace();
 
-            case "UPDATE":
-                transportistaService.updateTransportista(dto.getId(),
-                        dto.getTransportistaDTO());
-                break;
-
-            case "DELETE":
-                transportistaService.deleteTransportista(dto.getId());
-                break;
+            throw e;
         }
-
     }
 }
