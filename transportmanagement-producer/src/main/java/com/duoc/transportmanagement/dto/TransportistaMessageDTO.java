@@ -5,7 +5,7 @@ public class TransportistaMessageDTO {
 
     private Long id;
 
-    private TransportistaDTO transportista;
+    private TransportistaDTO transportistaDTO;
 
     public String getOperacion() {
         return operacion;
@@ -23,11 +23,11 @@ public class TransportistaMessageDTO {
         this.id = id;
     }
 
-    public TransportistaDTO getTransportista() {
-        return transportista;
+    public TransportistaDTO getTransportistaDTO() {
+        return transportistaDTO;
     }
 
-    public void setTransportistaDTO(TransportistaDTO transportista) {
-        this.transportista = transportista;
+    public void setTransportistaDTO(TransportistaDTO transportistaDTO) {
+        this.transportistaDTO = transportistaDTO;
     }
 }
