@@ -51,9 +51,10 @@ jobs:
       - name: Add SSH Key
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_rsa
+          printf '%s\n' "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
           ssh-keygen -y -f ~/.ssh/id_rsa > /dev/null
+          ssh-keygen -lf ~/.ssh/id_rsa
 
       # Paso 6: Conectarse a EC2 y desplegar el contenedor
       - name: SSH commands to deploy
